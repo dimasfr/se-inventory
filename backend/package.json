@@ -1,0 +1,25 @@
+{
+  "name": "se-inventory-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stock Opname API",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "node --watch --env-file=.env src/index.js",
+    "start": "node --env-file=.env src/index.js",
+    "migrate": "node --env-file=.env node_modules/node-pg-migrate/bin/node-pg-migrate.js up",
+    "migrate:down": "node --env-file=.env node_modules/node-pg-migrate/bin/node-pg-migrate.js down",
+    "seed": "node --env-file=.env scripts/seed.js",
+    "migrate:create": "node-pg-migrate create --migration-file-language sql"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "express": "^4.21.0",
+    "jsonwebtoken": "^9.0.3",
+    "node-pg-migrate": "^7.9.0",
+    "pg": "^8.13.0"
+  }
+}
