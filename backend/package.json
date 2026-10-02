@@ -13,6 +13,7 @@
     "migrate": "node --env-file=.env node_modules/node-pg-migrate/bin/node-pg-migrate.js up",
     "migrate:down": "node --env-file=.env node_modules/node-pg-migrate/bin/node-pg-migrate.js down",
     "seed": "node --env-file=.env scripts/seed.js",
+    "check:concurrency": "node --env-file=.env scripts/concurrency-check.js",
     "migrate:create": "node-pg-migrate create --migration-file-language sql"
   },
   "dependencies": {
