@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, ApiError } from '../../api.js';
 import Dialog, { btn } from '../../components/Dialog.jsx';
+import RefreshButton from '../../components/RefreshButton.jsx';
 import StatusBadge from '../../components/StatusBadge.jsx';
 import { formatDate } from '../../format.js';
 
@@ -29,13 +30,22 @@ export default function ManagerSessionReview() {
   const [staleNotice, setStaleNotice] = useState(false);
   const [notice, setNotice] = useState('');
 
+  const [refreshing, setRefreshing] = useState(false);
+
   const load = useCallback(async () => {
     try {
       setData(await api.get(`/sessions/${id}`));
+      setError('');
     } catch (err) {
       setError(err.status === 404 ? 'Session not found.' : err.message);
     }
   }, [id]);
+
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
 
   useEffect(() => {
     load();
@@ -85,7 +95,15 @@ export default function ManagerSessionReview() {
   if (error) {
     return (
       <div className="space-y-3">
-        <Link to="/manager/sessions" className="text-sm text-slate-600 hover:underline">← Sessions</Link>
+        <Link
+      to="/manager/sessions"
+      className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white/80 py-1.5 pl-2 pr-3.5 text-sm font-medium text-slate-600 shadow-sm transition active:scale-95"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+        <path d="m15 6-6 6 6 6" />
+      </svg>
+      Sessions
+    </Link>
         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
       </div>
     );
@@ -93,6 +111,7 @@ export default function ManagerSessionReview() {
   if (!data) return <p className="text-slate-500">Loading...</p>;
 
   const { session, submissions } = data;
+  const pendingId = submissions.find((s) => s.status === 'pending')?.id;
   const closeDialog = () => {
     if (busy) return;
     setDialog(null);
@@ -107,7 +126,13 @@ export default function ManagerSessionReview() {
     try {
       await fn();
     } catch (err) {
-      if (err instanceof ApiError && err.body.code === 'STOCK_CHANGED') {
+      if (err instanceof ApiError && err.body.code === 'SUBMISSION_CHANGED') {
+        // staff resubmitted while the manager was looking at an older version: tell them in the
+        // modal and let them refresh, instead of silently swapping the data under them
+        setReason('');
+        setDialogError('');
+        setDialog('stale');
+      } else if (err instanceof ApiError && err.body.code === 'STOCK_CHANGED') {
         // stock moved while the manager was reviewing: refresh and ask again with the new numbers
         await load();
         setStaleNotice(true);
@@ -122,7 +147,10 @@ export default function ManagerSessionReview() {
 
   const approve = () =>
     run(async () => {
-      const res = await api.post(`/sessions/${id}/approve`, { confirmStockChanged: stats.changed > 0 });
+      const res = await api.post(`/sessions/${id}/approve`, {
+        submissionId: pendingId,
+        confirmStockChanged: stats.changed > 0,
+      });
       setDialog(null);
       setNotice(
         `Approved. ${res.itemsUpdated} item${res.itemsUpdated === 1 ? '' : 's'} updated, ` +
@@ -133,7 +161,7 @@ export default function ManagerSessionReview() {
 
   const reject = () =>
     run(async () => {
-      await api.post(`/sessions/${id}/reject`, { reason });
+      await api.post(`/sessions/${id}/reject`, { submissionId: pendingId, reason });
       closeDialogAfter('Submission rejected. The session is open again so staff can recount.');
     });
 
@@ -154,36 +182,47 @@ export default function ManagerSessionReview() {
 
   return (
     <div className="space-y-5">
-      <Link to="/manager/sessions" className="text-sm text-slate-600 hover:underline">← Sessions</Link>
+      <Link
+      to="/manager/sessions"
+      className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white/80 py-1.5 pl-2 pr-3.5 text-sm font-medium text-slate-600 shadow-sm transition active:scale-95"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+        <path d="m15 6-6 6 6 6" />
+      </svg>
+      Sessions
+    </Link>
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">
+          <h1 className="text-2xl font-semibold tracking-tight">
             Session #{session.id} · {session.storeName}
           </h1>
           <p className="text-sm text-slate-500">Started {formatDate(session.createdAt)}</p>
           {session.note && <p className="mt-1 text-sm text-slate-700">{session.note}</p>}
         </div>
-        <StatusBadge status={session.status} />
+        <div className="flex items-center gap-2">
+          <RefreshButton onClick={refresh} refreshing={refreshing} />
+          <StatusBadge status={session.status} />
+        </div>
       </div>
 
       {notice && (
-        <p role="status" className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">{notice}</p>
+        <p role="status" className="rounded-2xl bg-green-50 px-4 py-3 text-sm text-green-800">{notice}</p>
       )}
 
       {session.status === 'open' && (
-        <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+        <p className="rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
           Waiting for staff to submit counts.
         </p>
       )}
       {session.status === 'approved' && (
-        <p className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+        <p className="rounded-2xl border border-green-200 bg-green-50 p-3 text-sm text-green-800">
           Approved on {formatDate(session.approvedAt)}. Stock was set to the counted quantities.
         </p>
       )}
 
       {reviewing && stats.changed > 0 && (
-        <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+        <div role="alert" className="rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
           <b>Stock changed since this session started</b> for {stats.changed} counted item
           {stats.changed === 1 ? '' : 's'} (e.g. sales during counting). Approving sets stock to the counted
           quantity and overwrites those changes. Check the highlighted rows first.
@@ -197,49 +236,58 @@ export default function ManagerSessionReview() {
           ['Not counted', stats.notCounted],
           ['With difference', stats.diff],
         ].map(([label, value]) => (
-          <div key={label} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-            <div className="text-xs text-slate-500">{label}</div>
-            <div className="text-lg font-semibold">{value}</div>
+          <div key={label} className="card px-4 py-3">
+            <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div>
+            <div className="text-2xl font-bold">{value}</div>
           </div>
         ))}
       </div>
 
       {reviewing && (
-        <div className="flex flex-wrap gap-2">
-          <button onClick={() => setDialog('approve')} className={btn.primary}>Approve</button>
-          <button onClick={() => setDialog('reject')} className={btn.secondary}>Reject</button>
-          <button onClick={() => setDialog('cancel')} className={`${btn.secondary} ml-auto`}>Cancel session</button>
-        </div>
+        <>
+          {/* mobile: pinned above the tab bar so Approve/Reject are always one tap away */}
+          <div className="fixed inset-x-0 bottom-[calc(3.9rem+env(safe-area-inset-bottom))] z-30 flex gap-2 border-t border-white/70 bg-white/90 px-4 py-2.5 shadow-[0_-8px_24px_-12px_rgba(15,23,42,0.18)] backdrop-blur-xl md:static md:z-auto md:border-0 md:bg-transparent md:p-0 md:shadow-none md:backdrop-blur-none">
+            <button onClick={() => setDialog('approve')} className={`${btn.primary} flex-1 py-3 md:flex-none md:py-2`}>Approve</button>
+            <button onClick={() => setDialog('reject')} className={`${btn.secondary} flex-1 py-3 md:flex-none md:py-2`}>Reject</button>
+            <button onClick={() => setDialog('cancel')} className={`${btn.secondary} hidden md:ml-auto md:block`}>Cancel session</button>
+          </div>
+          <div aria-hidden className="h-14 md:hidden" />
+          <button onClick={() => setDialog('cancel')} className="w-full rounded-2xl py-2.5 text-sm text-slate-500 underline-offset-2 hover:underline md:hidden">
+            Cancel session
+          </button>
+        </>
       )}
       {session.status === 'open' && (
-        <button onClick={() => setDialog('cancel')} className={btn.secondary}>Cancel session</button>
+        <button onClick={() => setDialog('cancel')} className={`${btn.secondary} w-full py-3 md:w-auto md:py-2`}>Cancel session</button>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="space-y-3">
+      <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:flex-wrap md:px-0">
         {FILTERS.filter(([key]) => key !== 'changed' || live).map(([key, label]) => (
           <button
             key={key}
             onClick={() => setFilter(key)}
-            className={`rounded-full px-3 py-1 text-sm ${
+            className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition active:scale-95 md:py-1.5 ${
               filter === key
-                ? 'bg-slate-900 text-white'
-                : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
+                ? 'bg-gradient-to-r from-red-500 to-rose-600 text-white shadow-md shadow-red-500/25'
+                : 'border border-slate-200 bg-white/80 text-slate-600 hover:bg-white'
             }`}
           >
             {label}
             {key === 'changed' && stats.changed > 0 && ` (${stats.changed})`}
           </button>
         ))}
-        <input
-          type="search"
-          placeholder="Search SKU or name"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="ml-auto w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm outline-none focus:border-slate-500 sm:w-56"
-        />
+      </div>
+      <input
+        type="search"
+        placeholder="Search SKU or name"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        className="w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 py-3 text-base outline-none transition focus:border-red-400 focus:bg-white focus:ring-4 focus:ring-red-100 md:py-2.5 md:text-sm"
+      />
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <div className="overflow-hidden card">
         <div
           className={`hidden gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs font-medium text-slate-500 md:grid ${
             live ? 'md:grid-cols-[1fr_repeat(4,5.5rem)]' : 'md:grid-cols-[1fr_repeat(3,5.5rem)]'
@@ -253,34 +301,68 @@ export default function ManagerSessionReview() {
         </div>
         <ul className="divide-y divide-slate-200">
           {visible.map((r) => (
-            <li
-              key={r.productId}
-              className={`grid grid-cols-4 items-center gap-2 px-4 py-3 text-sm ${
-                live ? 'md:grid-cols-[1fr_repeat(4,5.5rem)]' : 'md:grid-cols-[1fr_repeat(3,5.5rem)]'
-              } ${r.changed ? 'bg-amber-50' : ''}`}
-            >
-              <div className="col-span-4 min-w-0 md:col-span-1">
-                <div className="truncate font-medium">{r.name}</div>
-                <div className="text-xs text-slate-500">{r.sku}</div>
+            <li key={r.productId} className={r.changed ? 'bg-amber-50' : ''}>
+              {/* mobile: compact card */}
+              <div className="space-y-2.5 px-4 py-3.5 md:hidden">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold">{r.name}</div>
+                    <div className="text-xs text-slate-500">{r.sku}</div>
+                  </div>
+                  {r.counted ? (
+                    <span
+                      className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-bold tabular-nums ring-1 ring-inset ${
+                        r.difference === 0
+                          ? 'bg-slate-50 text-slate-500 ring-slate-200'
+                          : r.difference > 0
+                            ? 'bg-green-50 text-green-700 ring-green-200'
+                            : 'bg-red-50 text-red-700 ring-red-200'
+                      }`}
+                    >
+                      {signed(r.difference)}
+                    </span>
+                  ) : (
+                    <span className="shrink-0 rounded-full bg-slate-50 px-2.5 py-0.5 text-xs text-slate-400 ring-1 ring-inset ring-slate-200">
+                      not counted
+                    </span>
+                  )}
+                </div>
+                <div className={`grid gap-2 text-center ${live ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                  <MiniStat label="Snapshot" value={r.systemQty} />
+                  {live && (
+                    <MiniStat
+                      label="Current"
+                      value={r.currentQty}
+                      className={r.changed ? 'bg-amber-100 text-amber-900' : ''}
+                    />
+                  )}
+                  <MiniStat label="Counted" value={r.counted ? r.countedQty : '-'} strong />
+                </div>
               </div>
-              <Cell label="Snapshot" value={r.systemQty} />
-              {live && (
+
+              {/* desktop: table row */}
+              <div
+                className={`hidden items-center gap-2 px-4 py-3 text-sm md:grid ${
+                  live ? 'md:grid-cols-[1fr_repeat(4,5.5rem)]' : 'md:grid-cols-[1fr_repeat(3,5.5rem)]'
+                }`}
+              >
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{r.name}</div>
+                  <div className="text-xs text-slate-500">{r.sku}</div>
+                </div>
+                <Cell value={r.systemQty} />
+                {live && (
+                  <Cell value={r.currentQty} className={r.changed ? 'font-semibold text-amber-800' : ''} />
+                )}
                 <Cell
-                  label="Current"
-                  value={r.currentQty}
-                  className={r.changed ? 'font-semibold text-amber-800' : ''}
+                  value={r.counted ? r.countedQty : 'not counted'}
+                  className={r.counted ? '' : 'text-xs text-slate-400'}
                 />
-              )}
-              <Cell
-                label="Counted"
-                value={r.counted ? r.countedQty : 'not counted'}
-                className={r.counted ? '' : 'text-xs text-slate-400'}
-              />
-              <Cell
-                label="Difference"
-                value={r.counted ? signed(r.difference) : '-'}
-                className={r.counted ? `font-medium ${diffColor(r.difference)}` : 'text-slate-400'}
-              />
+                <Cell
+                  value={r.counted ? signed(r.difference) : '-'}
+                  className={r.counted ? `font-medium ${diffColor(r.difference)}` : 'text-slate-400'}
+                />
+              </div>
             </li>
           ))}
           {visible.length === 0 && (
@@ -291,8 +373,8 @@ export default function ManagerSessionReview() {
 
       {submissions.length > 0 && (
         <section>
-          <h2 className="mb-2 text-sm font-medium text-slate-500">Submission history</h2>
-          <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white text-sm">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Submission history</h2>
+          <ul className="divide-y divide-slate-100 overflow-hidden card text-sm">
             {submissions.map((s) => (
               <li key={s.id} className="flex items-start justify-between gap-3 px-4 py-3">
                 <div>
@@ -375,9 +457,36 @@ export default function ManagerSessionReview() {
             maxLength={1000}
             rows={3}
             placeholder="Reason (required), e.g. SKU-003 looks too low, please recount"
-            className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+            className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-red-400 focus:ring-4 focus:ring-red-100"
           />
           {dialogError && <p className="text-red-600">{dialogError}</p>}
+        </Dialog>
+      )}
+
+      {dialog === 'stale' && (
+        <Dialog
+          title="Submission has changed"
+          onClose={closeDialog}
+          footer={
+            <>
+              <button onClick={closeDialog} disabled={refreshing} className={btn.secondary}>Close</button>
+              <button
+                onClick={async () => {
+                  await refresh();
+                  setDialog(null);
+                }}
+                disabled={refreshing}
+                className={btn.primary}
+              >
+                {refreshing ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </>
+          }
+        >
+          <p className="rounded-md bg-amber-50 px-3 py-2 text-amber-900">
+            Staff submitted a new version while you were reviewing. Nothing was approved or rejected.
+          </p>
+          <p>Click <b>Refresh</b> to load the latest counts, then review them again before deciding.</p>
         </Dialog>
       )}
 
@@ -405,12 +514,15 @@ export default function ManagerSessionReview() {
   );
 }
 
-// label is shown only on small screens, where the column header is hidden
-function Cell({ label, value, className = '' }) {
+function MiniStat({ label, value, strong = false, className = '' }) {
   return (
-    <div className={`text-right tabular-nums ${className}`}>
-      <div className="text-[10px] font-normal uppercase tracking-wide text-slate-400 md:hidden">{label}</div>
-      {value}
+    <div className={`rounded-xl bg-slate-50 px-2 py-1.5 ${className}`}>
+      <div className="text-[10px] uppercase tracking-wide text-slate-400">{label}</div>
+      <div className={`tabular-nums ${strong ? 'text-base font-bold' : 'text-sm font-medium'}`}>{value}</div>
     </div>
   );
+}
+
+function Cell({ value, className = '' }) {
+  return <div className={`text-right tabular-nums ${className}`}>{value}</div>;
 }

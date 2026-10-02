@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../api.js';
+import { useAuth } from '../../auth.jsx';
 import StatusBadge from '../../components/StatusBadge.jsx';
 import { btn } from '../../components/Dialog.jsx';
 
@@ -8,6 +9,7 @@ const nf = new Intl.NumberFormat();
 
 export default function ManagerDashboard() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [startingFor, setStartingFor] = useState(null); // store id with the start form open
@@ -40,33 +42,35 @@ export default function ManagerDashboard() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold">Dashboard</h1>
+      <div>
+        <p className="text-sm text-slate-500">Halo, {user.name.split(' ')[0]} 👋</p>
+        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+      </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <div className="text-sm text-slate-500">Total stock (all stores)</div>
-          <div className="mt-1 text-2xl font-semibold">{nf.format(data.totalUnits)}</div>
-          <div className="text-xs text-slate-500">units</div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="relative col-span-2 overflow-hidden rounded-3xl bg-gradient-to-br from-red-500 via-red-600 to-rose-700 p-5 text-white shadow-lg shadow-red-500/30 sm:col-span-1">
+          <div aria-hidden className="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-white/15 blur-2xl" />
+          <div className="relative text-xs font-medium uppercase tracking-wide text-red-100">Total stock</div>
+          <div className="relative mt-1 text-4xl font-bold tracking-tight">{nf.format(data.totalUnits)}</div>
+          <div className="relative text-xs text-red-100">units · all stores</div>
         </div>
-        <Link
-          to="/manager/sessions?status=submitted"
-          className="rounded-xl border border-slate-200 bg-white p-4 hover:border-slate-400"
-        >
-          <div className="text-sm text-slate-500">Waiting for review</div>
-          <div className="mt-1 text-2xl font-semibold">{data.pendingReview}</div>
-          <div className="text-xs text-slate-500">submitted sessions</div>
+        <Link to="/manager/sessions?status=submitted" className="card card-link p-4 active:scale-[0.98]">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Review</div>
+          <div className="mt-1 text-3xl font-bold text-slate-900">{data.pendingReview}</div>
+          <div className="text-xs text-slate-500">waiting</div>
         </Link>
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <div className="text-sm text-slate-500">Stores</div>
-          <div className="mt-1 text-2xl font-semibold">{data.stores.length}</div>
+        <div className="card p-4">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Stores</div>
+          <div className="mt-1 text-3xl font-bold text-slate-900">{data.stores.length}</div>
+          <div className="text-xs text-slate-500">active</div>
         </div>
       </div>
 
       <section>
-        <h2 className="mb-2 text-sm font-medium text-slate-500">Stores</h2>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Stores</h2>
         <div className="grid gap-3 md:grid-cols-2">
           {data.stores.map((s) => (
-            <div key={s.id} className="rounded-xl border border-slate-200 bg-white p-4">
+            <div key={s.id} className="card p-4 sm:p-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="font-medium">{s.name}</div>
@@ -81,9 +85,9 @@ export default function ManagerDashboard() {
                 {s.activeSession ? (
                   <Link
                     to={`/manager/sessions/${s.activeSession.id}`}
-                    className="text-sm font-medium text-slate-900 hover:underline"
+                    className="flex items-center justify-between rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 transition active:scale-[0.98] sm:inline-flex sm:gap-2"
                   >
-                    {s.activeSession.status === 'submitted' ? 'Review submission →' : 'Open session →'}
+                    {s.activeSession.status === 'submitted' ? 'Review submission' : 'Open session'}<span aria-hidden>→</span>
                   </Link>
                 ) : startingFor === s.id ? (
                   <div className="space-y-2">
@@ -93,10 +97,10 @@ export default function ManagerDashboard() {
                       placeholder="Note (optional), e.g. Monthly opname"
                       value={note}
                       onChange={(e) => setNote(e.target.value)}
-                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                      className="w-full rounded-xl border border-slate-200 bg-white/80 px-3.5 py-3 text-base outline-none transition focus:border-red-400 focus:bg-white focus:ring-4 focus:ring-red-100 sm:py-2.5 sm:text-sm"
                     />
                     {startError && <p className="text-sm text-red-600">{startError}</p>}
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 [&>button]:flex-1 [&>button]:py-3 sm:[&>button]:flex-none sm:[&>button]:py-2">
                       <button onClick={() => startSession(s.id)} disabled={busy} className={btn.primary}>
                         {busy ? 'Starting...' : 'Start session'}
                       </button>
@@ -112,7 +116,7 @@ export default function ManagerDashboard() {
                       setNote('');
                       setStartError('');
                     }}
-                    className={btn.secondary}
+                    className={`${btn.secondary} w-full py-3 active:scale-[0.98] sm:w-auto sm:py-2`}
                   >
                     Start stock opname
                   </button>

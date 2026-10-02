@@ -149,7 +149,6 @@ se-inventory/
 │       ├── api.js, auth.jsx          # fetch wrapper, auth context
 │       ├── components/               # Layout, RequireRole, Dialog, StatusBadge
 │       └── pages/                    # Login, staff/*, manager/*
-├── docs/                      # original brief
 ├── NOTES.md                   # design decisions
 └── README.md
 ```

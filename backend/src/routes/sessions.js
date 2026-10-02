@@ -240,6 +240,13 @@ router.post('/:id/submissions', requireRole('staff'), async (req, res, next) => 
     const id = toId(req.params.id);
     if (!id) return res.status(404).json({ error: 'Session not found' });
 
+    // version of the pending submission the staff's view shows (0 = none); guards against submitting on a
+    // stale view, e.g. the manager rejected that pending version in the meantime
+    const basedOn = req.body?.basedOnPendingVersion;
+    if (!Number.isInteger(basedOn) || basedOn < 0) {
+      return res.status(400).json({ error: 'basedOnPendingVersion is required' });
+    }
+
     const { items, errors } = validateItems(req.body?.items);
     if (errors.length) {
       return res.status(422).json({ error: 'Invalid submission', details: errors.slice(0, MAX_REPORTED_ERRORS) });
@@ -253,6 +260,13 @@ router.post('/:id/submissions', requireRole('staff'), async (req, res, next) => 
       if (!['open', 'submitted'].includes(session.status)) {
         return fail(409, `Session is ${session.status} and no longer accepts submissions`);
       }
+
+      // e.g. the manager rejected (or the staff submitted from another device) since this view was loaded
+      const pendingNow = await db.query(
+        "SELECT COALESCE(MAX(version), 0) AS v FROM submissions WHERE session_id = $1 AND status = 'pending'",
+        [id]
+      );
+      if (Number(pendingNow.rows[0].v) !== basedOn) return { stale: true };
 
       const skus = items.map((i) => i.sku);
       const known = await db.query(
@@ -307,6 +321,12 @@ router.post('/:id/submissions', requireRole('staff'), async (req, res, next) => 
       };
     });
 
+    if (result.stale) {
+      return res.status(409).json({
+        error: 'This session changed since you loaded it. Refresh to see the latest status before submitting.',
+        code: 'SESSION_CHANGED',
+      });
+    }
     if (result.fail) {
       const { status, errors: details } = result.fail;
       return res.status(status).json({ error: details[0], ...(details.length > 1 && { details }) });

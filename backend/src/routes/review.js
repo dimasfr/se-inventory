@@ -25,6 +25,19 @@ async function lockReviewable(db, sessionId) {
   return { session, submission: p.rows[0] };
 }
 
+// The manager reviews a specific submission; if staff resubmitted meanwhile, the pending one
+// is a newer version and nothing must be applied/rejected on the manager's behalf.
+function checkReviewed(submission, reviewedId) {
+  if (submission.id === reviewedId) return null;
+  return {
+    status: 409,
+    body: {
+      error: 'Staff submitted a new version while you were reviewing. Review the latest counts first.',
+      code: 'SUBMISSION_CHANGED',
+    },
+  };
+}
+
 // Approve: stock is set to the counted quantity, one transaction, all or nothing.
 // If stock moved since the snapshot (e.g. sales during counting), the manager has to
 // confirm explicitly with { confirmStockChanged: true }; otherwise nothing is written.
@@ -33,11 +46,15 @@ router.post('/:id/approve', async (req, res, next) => {
     const id = toId(req.params.id);
     if (!id) return res.status(404).json({ error: 'Session not found' });
     const confirmed = req.body?.confirmStockChanged === true;
+    const reviewedId = toId(req.body?.submissionId);
+    if (!reviewedId) return res.status(400).json({ error: 'submissionId is required' });
 
     const result = await withTransaction(async (db) => {
       const locked = await lockReviewable(db, id);
       if (locked.error) return { status: locked.error[0], body: { error: locked.error[1] } };
       const { session, submission } = locked;
+      const stale = checkReviewed(submission, reviewedId);
+      if (stale) return stale;
 
       // lock the affected stock rows (fixed order avoids deadlocks with other writers)
       const { rows } = await db.query(
@@ -132,6 +149,9 @@ router.post('/:id/reject', async (req, res, next) => {
     const id = toId(req.params.id);
     if (!id) return res.status(404).json({ error: 'Session not found' });
 
+    const reviewedId = toId(req.body?.submissionId);
+    if (!reviewedId) return res.status(400).json({ error: 'submissionId is required' });
+
     const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
     if (!reason) return res.status(400).json({ error: 'A rejection reason is required' });
     if (reason.length > MAX_REASON_LENGTH) {
@@ -141,6 +161,8 @@ router.post('/:id/reject', async (req, res, next) => {
     const result = await withTransaction(async (db) => {
       const locked = await lockReviewable(db, id);
       if (locked.error) return { status: locked.error[0], body: { error: locked.error[1] } };
+      const stale = checkReviewed(locked.submission, reviewedId);
+      if (stale) return stale;
 
       await db.query(
         `UPDATE submissions
